@@ -420,6 +420,19 @@ class SFStore : public Store {
   std::string get_cls_name() const { return "sfstore"; }
 };
 
+struct ScopedStoreBucketRefresher {
+
+  ScopedStoreBucketRefresher(SFStore &_store)
+  : store(_store),
+    meta_buckets(sfs::get_meta_buckets(store.db_conn)){}
+
+  ~ScopedStoreBucketRefresher(){
+    store._refresh_buckets_safe();
+  }
+
+  SFStore &store;
+  sfs::MetaBucketsRef meta_buckets;
+};
 
 }  // namespace rgw::sal
 

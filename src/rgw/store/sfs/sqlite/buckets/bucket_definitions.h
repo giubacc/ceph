@@ -59,6 +59,7 @@ struct DBBucket {
 // Struct with information needed by SAL layer
 struct DBOPBucketInfo {
   RGWBucketInfo binfo;
+  Attrs battrs;
 };
 
 }  // namespace rgw::sal::sfs::sqlite

@@ -280,12 +280,11 @@ int SFSBucket::check_bucket_shards(const DoutPrefixProvider *dpp) {
 }
 int SFSBucket::put_info(const DoutPrefixProvider *dpp, bool exclusive,
                                ceph::real_time mtime) {
+  ScopedStoreBucketRefresher ssbr(*store);
+
   sfs::sqlite::DBOPBucketInfo store_info;
   store_info.binfo = info;
-
-  auto meta_buckets = sfs::get_meta_buckets(store->db_conn);
-  meta_buckets->store_bucket(store_info);
-  store->_refresh_buckets_safe();
+  ssbr.meta_buckets->store_bucket(store_info);
   return 0;
 }
 
