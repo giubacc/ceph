@@ -107,10 +107,7 @@ class SFSBucket : public Bucket {
   virtual RGWAccessControlPolicy &get_acl(void) override { return acls; }
 
   virtual int set_acl(const DoutPrefixProvider *dpp,
-                      RGWAccessControlPolicy &acl, optional_yield y) override {
-    acls = acl;
-    return 0;
-  }
+                      RGWAccessControlPolicy &acl, optional_yield y) override;
   /**
    * Load this bucket from disk.
    */

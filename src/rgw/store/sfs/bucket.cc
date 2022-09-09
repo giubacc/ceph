@@ -143,6 +143,24 @@ int SFSBucket::load_bucket(
   return 0;
 }
 
+int SFSBucket::set_acl(const DoutPrefixProvider *dpp,
+                       RGWAccessControlPolicy &acl,
+                       optional_yield y) {
+    ScopedStoreBucketRefresher ssbr(*store);
+    acls = acl;
+
+    bufferlist aclp_bl;
+    acls.encode(aclp_bl);
+    attrs[RGW_ATTR_ACL] = aclp_bl;
+
+    sfs::sqlite::DBOPBucketInfo store_info;
+    store_info.binfo = info;
+    store_info.battrs = attrs;
+    ssbr.meta_buckets->store_bucket(store_info);
+
+    return 0;
+}
+
 int SFSBucket::chown(const DoutPrefixProvider *dpp, User *new_user,
                             User *old_user, optional_yield y,
                             const std::string *marker) {
@@ -161,12 +179,25 @@ int SFSBucket::check_empty(const DoutPrefixProvider *dpp,
 }
 
 int SFSBucket::merge_and_store_attrs(const DoutPrefixProvider *dpp,
-                                            Attrs &new_attrs,
-                                            optional_yield y) {
-  /** Set the attributes in attrs, leaving any other existing attrs set, and
-   * write them to the backing store; a merge operation */
-  ldpp_dout(dpp, 10) << __func__ << ": TODO" << dendl;
-  return -ENOTSUP;
+                                     Attrs &new_attrs,
+                                     optional_yield y) {
+    ScopedStoreBucketRefresher ssbr(*store);
+
+    for(auto& it : new_attrs) {
+	    attrs[it.first] = it.second;
+
+      if(it.first == RGW_ATTR_ACL){
+        auto lval = it.second.cbegin();
+        acls.decode(lval);
+      }
+    }
+
+    sfs::sqlite::DBOPBucketInfo store_info;
+    store_info.binfo = info;
+    store_info.battrs = attrs;
+    ssbr.meta_buckets->store_bucket(store_info);
+
+    return 0;
 }
 
 std::unique_ptr<MultipartUpload> SFSBucket::get_multipart_upload(
@@ -278,13 +309,15 @@ int SFSBucket::check_bucket_shards(const DoutPrefixProvider *dpp) {
   ldpp_dout(dpp, 10) << __func__ << ": TODO" << dendl;
   return -ENOTSUP;
 }
-int SFSBucket::put_info(const DoutPrefixProvider *dpp, bool exclusive,
-                               ceph::real_time mtime) {
+int SFSBucket::put_info(const DoutPrefixProvider *dpp,
+                        bool exclusive,
+                        ceph::real_time mtime) {
   ScopedStoreBucketRefresher ssbr(*store);
 
   sfs::sqlite::DBOPBucketInfo store_info;
   store_info.binfo = info;
   ssbr.meta_buckets->store_bucket(store_info);
+
   return 0;
 }
 
