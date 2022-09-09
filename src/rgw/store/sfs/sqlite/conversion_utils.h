@@ -91,4 +91,6 @@ void assign_db_value(const SOURCE & source, std::optional<std::vector<char>> & d
   dest = blob_vector;
 }
 
+
+
 }  // namespace rgw::sal::sfs::sqlite
