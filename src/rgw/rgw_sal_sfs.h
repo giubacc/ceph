@@ -422,9 +422,10 @@ class SFStore : public Store {
 
 struct ScopedStoreBucketRefresher {
 
-  ScopedStoreBucketRefresher(SFStore &_store)
-  : store(_store),
-    meta_buckets(sfs::get_meta_buckets(store.db_conn)){}
+  ScopedStoreBucketRefresher(SFSBucket &bucket)
+  : store(bucket.get_store()),
+    meta_buckets(sfs::get_meta_buckets(store.db_conn)),
+    db_bucket(bucket.get_info(), bucket.get_attrs()) {}
 
   ~ScopedStoreBucketRefresher(){
     store._refresh_buckets_safe();
@@ -432,6 +433,7 @@ struct ScopedStoreBucketRefresher {
 
   SFStore &store;
   sfs::MetaBucketsRef meta_buckets;
+  sfs::sqlite::DBOPBucketInfo db_bucket;
 };
 
 }  // namespace rgw::sal

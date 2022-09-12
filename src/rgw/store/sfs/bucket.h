@@ -217,6 +217,15 @@ class SFSBucket : public Bucket {
     const std::string &meta
   );
   inline std::string get_cls_name() { return "bucket"; }
+
+  SFStore& get_store(){
+    return *store;
+  }
+
+  const SFStore& get_store() const{
+    return *store;
+  }
+  
 };
 
 } // ns rgw::sal

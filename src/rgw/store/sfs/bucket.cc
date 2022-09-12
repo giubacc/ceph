@@ -146,17 +146,14 @@ int SFSBucket::load_bucket(
 int SFSBucket::set_acl(const DoutPrefixProvider *dpp,
                        RGWAccessControlPolicy &acl,
                        optional_yield y) {
-    ScopedStoreBucketRefresher ssbr(*store);
     acls = acl;
 
     bufferlist aclp_bl;
     acls.encode(aclp_bl);
     attrs[RGW_ATTR_ACL] = aclp_bl;
 
-    sfs::sqlite::DBOPBucketInfo store_info;
-    store_info.binfo = info;
-    store_info.battrs = attrs;
-    ssbr.meta_buckets->store_bucket(store_info);
+    ScopedStoreBucketRefresher ssbr(*this);
+    ssbr.meta_buckets->store_bucket(ssbr.db_bucket);
 
     return 0;
 }
@@ -181,8 +178,6 @@ int SFSBucket::check_empty(const DoutPrefixProvider *dpp,
 int SFSBucket::merge_and_store_attrs(const DoutPrefixProvider *dpp,
                                      Attrs &new_attrs,
                                      optional_yield y) {
-    ScopedStoreBucketRefresher ssbr(*store);
-
     for(auto& it : new_attrs) {
 	    attrs[it.first] = it.second;
 
@@ -192,11 +187,9 @@ int SFSBucket::merge_and_store_attrs(const DoutPrefixProvider *dpp,
       }
     }
 
-    sfs::sqlite::DBOPBucketInfo store_info;
-    store_info.binfo = info;
-    store_info.battrs = attrs;
-    ssbr.meta_buckets->store_bucket(store_info);
-
+    ScopedStoreBucketRefresher ssbr(*this);
+    ssbr.meta_buckets->store_bucket(ssbr.db_bucket);
+    
     return 0;
 }
 
@@ -312,11 +305,8 @@ int SFSBucket::check_bucket_shards(const DoutPrefixProvider *dpp) {
 int SFSBucket::put_info(const DoutPrefixProvider *dpp,
                         bool exclusive,
                         ceph::real_time mtime) {
-  ScopedStoreBucketRefresher ssbr(*store);
-
-  sfs::sqlite::DBOPBucketInfo store_info;
-  store_info.binfo = info;
-  ssbr.meta_buckets->store_bucket(store_info);
+  ScopedStoreBucketRefresher ssbr(*this);
+  ssbr.meta_buckets->store_bucket(ssbr.db_bucket);
 
   return 0;
 }
