@@ -367,6 +367,8 @@ class SFStore : public Store {
     info.requester_pays = false;
     info.quota = db_binfo.binfo.quota;
     
+    db_binfo.battrs = attrs;
+
     auto meta_buckets = sfs::get_meta_buckets(db_conn);
     meta_buckets->store_bucket(db_binfo);
 
