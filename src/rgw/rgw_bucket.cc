@@ -384,14 +384,19 @@ bool rgw_find_bucket_by_id(const DoutPrefixProvider *dpp, CephContext *cct, rgw:
   return false;
 }
 
-int RGWBucket::chown(RGWBucketAdminOpState& op_state, const string& marker,
-                     optional_yield y, const DoutPrefixProvider *dpp, std::string *err_msg)
+int RGWBucket::chown(RGWBucketAdminOpState& op_state,
+                     const string& marker,
+                     RGWFormatterFlusher& flusher,
+                     optional_yield y,
+                     const DoutPrefixProvider *dpp,
+                     std::string *err_msg)
 {
-  int ret = bucket->chown(dpp, user.get(), user.get(), y, &marker);
+  std::unique_ptr<rgw::sal::User> old_user = store->get_user(bucket->get_info().owner);
+  int ret = bucket->chown(dpp, user.get(), old_user.get(), y, &marker, &flusher);
   if (ret < 0) {
     set_err_msg(err_msg, "Failed to change object ownership: " + cpp_strerror(-ret));
   }
-  
+
   return ret;
 }
 
@@ -912,7 +917,12 @@ int RGWBucketAdminOp::link(rgw::sal::Store* store, RGWBucketAdminOpState& op_sta
   return 0;
 }
 
-int RGWBucketAdminOp::chown(rgw::sal::Store* store, RGWBucketAdminOpState& op_state, const string& marker, const DoutPrefixProvider *dpp, string *err)
+int RGWBucketAdminOp::chown(rgw::sal::Store* store,
+                            RGWBucketAdminOpState& op_state,
+                            RGWFormatterFlusher& flusher,
+                            const string& marker,
+                            const DoutPrefixProvider *dpp,
+                            string *err)
 {
   RGWBucket bucket;
 
@@ -920,7 +930,7 @@ int RGWBucketAdminOp::chown(rgw::sal::Store* store, RGWBucketAdminOpState& op_st
   if (ret < 0)
     return ret;
 
-  return bucket.chown(op_state, marker, null_yield, dpp, err);
+  return bucket.chown(op_state, marker, flusher, null_yield, dpp, err);
 
 }
 

@@ -315,7 +315,12 @@ namespace rgw::sal {
     return 0;
   }
 
-  int DBBucket::chown(const DoutPrefixProvider *dpp, User* new_user, User* old_user, optional_yield y, const std::string* marker)
+  int DBBucket::chown(const DoutPrefixProvider* dpp,
+                      User* new_user,
+                      User* old_user,
+                      optional_yield y,
+                      const std::string* marker,
+                      RGWFormatterFlusher* flusher)
   {
     int ret;
 

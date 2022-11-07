@@ -349,8 +349,13 @@ public:
           std::map<RGWObjCategory, RGWStorageStats>& calculated_stats,
           std::string *err_msg = NULL);
 
-  int chown(RGWBucketAdminOpState& op_state, const std::string& marker,
-            optional_yield y, const DoutPrefixProvider *dpp, std::string *err_msg = NULL);
+  int chown(RGWBucketAdminOpState& op_state,
+            const std::string& marker,
+            RGWFormatterFlusher& flusher,
+            optional_yield y,
+            const DoutPrefixProvider *dpp,
+            std::string *err_msg = NULL);
+
   int set_quota(RGWBucketAdminOpState& op_state, const DoutPrefixProvider *dpp, std::string *err_msg = NULL);
 
   int remove_object(const DoutPrefixProvider *dpp, RGWBucketAdminOpState& op_state, std::string *err_msg = NULL);
@@ -374,7 +379,7 @@ public:
 
   static int unlink(rgw::sal::Store* store, RGWBucketAdminOpState& op_state, const DoutPrefixProvider *dpp);
   static int link(rgw::sal::Store* store, RGWBucketAdminOpState& op_state, const DoutPrefixProvider *dpp, std::string *err_msg = NULL);
-  static int chown(rgw::sal::Store* store, RGWBucketAdminOpState& op_state, const std::string& marker, const DoutPrefixProvider *dpp, std::string *err_msg = NULL);
+  static int chown(rgw::sal::Store* store, RGWBucketAdminOpState& op_state, RGWFormatterFlusher& flusher, const std::string& marker, const DoutPrefixProvider *dpp, std::string *err_msg = NULL);
 
   static int check_index(rgw::sal::Store* store, RGWBucketAdminOpState& op_state,
                   RGWFormatterFlusher& flusher, optional_yield y, const DoutPrefixProvider *dpp);

@@ -183,12 +183,133 @@ int SFSBucket::set_acl(const DoutPrefixProvider *dpp,
     return 0;
 }
 
-int SFSBucket::chown(const DoutPrefixProvider *dpp, User *new_user,
-                            User *old_user, optional_yield y,
-                            const std::string *marker) {
-  ldpp_dout(dpp, 10) << __func__ << ": TODO" << dendl;
-  return -ENOTSUP;
+int SFSBucket::chown(const DoutPrefixProvider* dpp,
+                     User* new_user,
+                     User* old_user,
+                     optional_yield y,
+                     const std::string* marker,
+                     RGWFormatterFlusher* flusher) {
+    Formatter *formatter = flusher ? flusher->get_formatter() : nullptr;
+    if(formatter){
+      flusher->start(0);
+      formatter->open_object_section("");
+      formatter->dump_string("old_user_id", old_user->get_id().id);
+      formatter->dump_string("new_user_id", new_user->get_id().id);
+      formatter->open_array_section("object_progression");
+    }
+
+    set_owner(new_user);
+    get_info().owner = new_user->get_info().user_id;
+
+    sfs::get_meta_buckets(get_store().db_conn)->store_bucket(
+      sfs::sqlite::DBOPBucketInfo(get_info(), get_attrs()));
+
+    store->_refresh_buckets_safe();
+
+    rgw::sal::Bucket::ListParams params;
+    rgw::sal::Bucket::ListResults results;
+
+    params.list_versions = true;
+    params.allow_unordered = true;
+    params.marker = *marker;
+
+    int count = 0;
+    int max_entries = 1000;
+    int partial_count = 0;
+
+    //Loop through objects and update object acls to point to bucket owner
+
+    do {
+      RGWObjectCtx obj_ctx(store);
+      results.objs.clear();
+      int ret = list(dpp, params, max_entries, results, y);
+      if (ret < 0) {
+        ldpp_dout(dpp, 0) << "ERROR: list objects failed: " << cpp_strerror(-ret) << dendl;
+        return ret;
+      }
+
+      params.marker = results.next_marker;
+      count += results.objs.size();
+
+      for (const auto& obj : results.objs) {
+
+        if(formatter && partial_count && !(partial_count % 100)){
+          formatter->open_object_section("");
+          formatter->dump_int("processed_objects", partial_count);
+          formatter->dump_string("processing_object", obj.key.name);
+          formatter->close_section();
+        }
+        ++partial_count;
+
+        std::unique_ptr<rgw::sal::Object> r_obj = get_object(obj.key);
+
+        ret = r_obj->get_obj_attrs(y, dpp);
+        if (ret < 0){
+          ldpp_dout(dpp, 0) << "ERROR: failed to read object " << obj.key.name << cpp_strerror(-ret) << dendl;
+          continue;
+        }
+        const auto& aiter = r_obj->get_attrs().find(RGW_ATTR_ACL);
+        if (aiter == r_obj->get_attrs().end()) {
+          ldpp_dout(dpp, 0) << "ERROR: no acls found for object " << obj.key.name << " .Continuing with next object." << dendl;
+          continue;
+        } else {
+          bufferlist& bl = aiter->second;
+          RGWAccessControlPolicy policy(store->ctx());
+          ACLOwner owner;
+          try {
+            ceph::decode(policy, bl);
+            owner = policy.get_owner();
+          } catch (buffer::error& err) {
+            ldpp_dout(dpp, 0) << "ERROR: decode policy failed" << err.what() << dendl;
+            return -EIO;
+          }
+
+          //Get the ACL from the policy
+          RGWAccessControlList& acl = policy.get_acl();
+
+          //Remove grant that is set to old owner
+          acl.remove_canon_user_grant(owner.get_id());
+
+          //Create a grant and add grant
+          ACLGrant grant;
+          grant.set_canon(new_user->get_info().user_id,
+                          new_user->get_info().display_name,
+                          RGW_PERM_FULL_CONTROL);
+          acl.add_grant(&grant);
+
+          //Update the ACL owner to the new user
+          owner.set_id(new_user->get_info().user_id);
+          owner.set_name(new_user->get_info().display_name);
+          policy.set_owner(owner);
+
+          bl.clear();
+          policy.encode(bl);
+
+          r_obj->set_atomic();
+          map<string, bufferlist> attrs;
+          attrs[RGW_ATTR_ACL] = bl;
+          ret = r_obj->set_obj_attrs(dpp, &attrs, nullptr, y);
+          if (ret < 0) {
+            ldpp_dout(dpp, 0) << "ERROR: modify attr failed " << cpp_strerror(-ret) << dendl;
+            return ret;
+          }
+
+        }
+      }
+      cerr << count << " objects processed in " << bucket
+          << ". Next marker " << params.marker.name << std::endl;
+    } while(results.is_truncated);
+
+    if(formatter){
+      formatter->close_section();
+      formatter->dump_int("processed_objects", partial_count);
+      formatter->close_section();
+      flusher->flush();
+    }
+
+    return 0;
 }
+
 bool SFSBucket::is_owner(User *user) {
   ldout(store->ceph_context(), 10) << __func__ << ": TODO" << dendl;
   return true;
