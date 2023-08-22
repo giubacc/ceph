@@ -345,6 +345,57 @@ void RGWOp_Sync_Bucket::execute(optional_yield y)
   op_ret = RGWBucketAdminOp::sync_bucket(driver, op_state, s);
 }
 
+class RGWOp_Go_Die : public RGWRESTOp {
+
+public:
+  RGWOp_Go_Die() {}
+
+  int check_caps(const RGWUserCaps& caps) override {
+    return 0;
+  }
+
+  void execute(optional_yield y) override;
+
+  const char* name() const override { return "go_die"; }
+};
+
+enum DIE_HOW{
+  EXIT_1,
+  CORE_BY_SEG_FAULT
+};
+
+DIE_HOW die_how_str2enum(std::string &str){
+  if(str == "exit1"){
+    return EXIT_1;
+  }else if(str == "segfault"){
+    return CORE_BY_SEG_FAULT;
+  }else{
+    return EXIT_1;
+  }
+}
+
+void RGWOp_Go_Die::execute(optional_yield y)
+{
+  bool die_how_existed = false;
+  std::string die_how_str;
+  RESTArgs::get_string(s, "how", die_how_str, &die_how_str, &die_how_existed);
+
+  ldpp_dout(this, 0) << "Lord requested to die by:" << die_how_str << dendl;
+  DIE_HOW how = die_how_str2enum(die_how_str);
+  switch (how)
+  {
+    case EXIT_1:
+      ldpp_dout(this, 0) << "exit 1" << dendl;
+      exit(1);
+    case CORE_BY_SEG_FAULT:
+      ldpp_dout(this, 0) << "segfault" << dendl;
+      ((RGWOp_Go_Die*)(0x0fafa))->execute(null_yield);
+    default:
+      break;
+  }
+
+}
+
 class RGWOp_Object_Remove: public RGWRESTOp {
 
 public:
@@ -395,7 +446,10 @@ RGWOp *RGWHandler_Bucket::op_put()
 
   if (s->info.args.sub_resource_exists("sync"))
     return new RGWOp_Sync_Bucket;
-  
+
+  if (s->info.args.sub_resource_exists("die"))
+    return new RGWOp_Go_Die;
+
   return new RGWOp_Bucket_Link;
 }
 
