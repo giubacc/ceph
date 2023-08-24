@@ -360,17 +360,20 @@ public:
 };
 
 enum DIE_HOW{
+  EXIT_0,
   EXIT_1,
   CORE_BY_SEG_FAULT
 };
 
 DIE_HOW die_how_str2enum(std::string &str){
-  if(str == "exit1"){
+  if(str == "exit0"){
+    return EXIT_0;
+  } else if(str == "exit1"){
     return EXIT_1;
   }else if(str == "segfault"){
     return CORE_BY_SEG_FAULT;
   }else{
-    return EXIT_1;
+    return EXIT_0;
   }
 }
 
@@ -379,11 +382,43 @@ void RGWOp_Go_Die::execute(optional_yield y)
   bool die_how_existed = false;
   std::string die_how_str;
   RESTArgs::get_string(s, "how", die_how_str, &die_how_str, &die_how_existed);
-
   ldpp_dout(this, 0) << "Lord requested to die by:" << die_how_str << dendl;
+
+  RGWAccessKey key;
+  key.id = "test";
+  key.key = "test";
+
+  RGWEnv env;
+  req_info info(g_ceph_context, &env);
+  info.method = "PUT";
+  info.request_uri = "/death";
+
+  param_vec_t params;
+  params.push_back(param_pair_t("type", die_how_str));
+
+  std::string endpoint = g_conf().get_val<std::string>("probe_endpoint");
+  ldpp_dout(this, 0) << "endpoint:" << endpoint << dendl;
+
+  uint64_t ts = std::chrono::duration_cast<std::chrono::nanoseconds>(ceph::real_clock::now().time_since_epoch()).count();
+
+  std::ostringstream os;
+  os << ts;
+
+  params.push_back(param_pair_t("ts", os.str()));
+  RGWRESTSimpleRequest req(g_ceph_context, "PUT", endpoint, NULL, &params, std::nullopt);
+
+  bufferlist response;
+  int ret = req.forward_request(this, key, info, 1024, NULL, &response, null_yield);
+  if(ret){
+      ldpp_dout(this, 0) << "forward_request failed:" << ret << dendl;
+  }
+
   DIE_HOW how = die_how_str2enum(die_how_str);
   switch (how)
   {
+    case EXIT_0:
+      ldpp_dout(this, 0) << "exit 0" << dendl;
+      exit(0);
     case EXIT_1:
       ldpp_dout(this, 0) << "exit 1" << dendl;
       exit(1);
@@ -393,7 +428,6 @@ void RGWOp_Go_Die::execute(optional_yield y)
     default:
       break;
   }
-
 }
 
 class RGWOp_Object_Remove: public RGWRESTOp {

@@ -3773,6 +3773,13 @@ options:
   desc: RGW SFS store data dir
   service:
     - rgw
+- name: probe_endpoint
+  type: str
+  level: dev
+  default: http://localhost:8080
+  desc: probe endpoint
+  service:
+    - rgw
 - name: rgw_sfs_gc_max_objects_per_iteration
   type: uint
   level: advanced
