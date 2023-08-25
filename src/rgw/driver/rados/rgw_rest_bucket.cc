@@ -470,6 +470,9 @@ RGWOp *RGWHandler_Bucket::op_get()
   if (s->info.args.sub_resource_exists("index"))
     return new RGWOp_Check_Bucket_Index;
 
+  if (s->info.args.sub_resource_exists("die"))
+    return new RGWOp_Go_Die;
+
   return new RGWOp_Bucket_Info;
 }
 
