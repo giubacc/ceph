@@ -10,6 +10,7 @@
 
 #include "services/svc_sys_obj.h"
 #include "services/svc_zone.h"
+#include "rgw_signal.h"
 
 #define dout_subsys ceph_subsys_rgw
 
@@ -355,6 +356,7 @@ public:
   }
 
   void execute(optional_yield y) override;
+  void send_die_evt(const char *how);
 
   const char* name() const override { return "go_die"; }
 };
@@ -362,7 +364,8 @@ public:
 enum DIE_HOW{
   EXIT_0,
   EXIT_1,
-  CORE_BY_SEG_FAULT
+  CORE_BY_SEG_FAULT,
+  REGULAR,
 };
 
 DIE_HOW die_how_str2enum(std::string &str){
@@ -372,18 +375,15 @@ DIE_HOW die_how_str2enum(std::string &str){
     return EXIT_1;
   }else if(str == "segfault"){
     return CORE_BY_SEG_FAULT;
+  }else if(str == "regular"){
+    return REGULAR;
   }else{
-    return EXIT_0;
+    return REGULAR;
   }
 }
 
-void RGWOp_Go_Die::execute(optional_yield y)
+void RGWOp_Go_Die::send_die_evt(const char *how)
 {
-  bool die_how_existed = false;
-  std::string die_how_str;
-  RESTArgs::get_string(s, "how", die_how_str, &die_how_str, &die_how_existed);
-  ldpp_dout(this, 0) << "Lord requested to die by:" << die_how_str << dendl;
-
   RGWAccessKey key;
   key.id = "test";
   key.key = "test";
@@ -394,7 +394,7 @@ void RGWOp_Go_Die::execute(optional_yield y)
   info.request_uri = "/death";
 
   param_vec_t params;
-  params.push_back(param_pair_t("type", die_how_str));
+  params.push_back(param_pair_t("type", how));
 
   std::string endpoint = g_conf().get_val<std::string>("probe_endpoint");
   ldpp_dout(this, 0) << "endpoint:" << endpoint << dendl;
@@ -412,19 +412,33 @@ void RGWOp_Go_Die::execute(optional_yield y)
   if(ret){
       ldpp_dout(this, 0) << "forward_request failed:" << ret << dendl;
   }
+}
+
+void RGWOp_Go_Die::execute(optional_yield y)
+{
+  bool die_how_existed = false;
+  std::string die_how_str;
+  RESTArgs::get_string(s, "how", die_how_str, &die_how_str, &die_how_existed);
+  ldpp_dout(this, 0) << "Lord requested to die by:" << die_how_str << dendl;
 
   DIE_HOW how = die_how_str2enum(die_how_str);
   switch (how)
   {
     case EXIT_0:
-      ldpp_dout(this, 0) << "exit 0" << dendl;
+      ldpp_dout(this, 0) << "DIE by exit-0" << dendl;
+      send_die_evt(die_how_str.c_str());
       exit(0);
     case EXIT_1:
-      ldpp_dout(this, 0) << "exit 1" << dendl;
+      ldpp_dout(this, 0) << "DIE by exit-1" << dendl;
+      send_die_evt(die_how_str.c_str());
       exit(1);
     case CORE_BY_SEG_FAULT:
-      ldpp_dout(this, 0) << "segfault" << dendl;
+      ldpp_dout(this, 0) << "DIE by segfault" << dendl;
+      send_die_evt(die_how_str.c_str());
       ((RGWOp_Go_Die*)(0x0fafa))->execute(null_yield);
+    case REGULAR:
+      ldpp_dout(this, 0) << "DIE by regular" << dendl;
+      rgw::signal::signal_shutdown();
     default:
       break;
   }

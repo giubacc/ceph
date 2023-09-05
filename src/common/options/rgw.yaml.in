@@ -3780,6 +3780,20 @@ options:
   desc: probe endpoint
   service:
     - rgw
+- name: send_probe_evt_main
+  type: bool
+  level: dev
+  default: true
+  desc: send_probe_evt_main
+  service:
+    - rgw
+- name: send_probe_evt_frontend_up
+  type: bool
+  level: dev
+  default: true
+  desc: send_probe_evt_frontend_up
+  service:
+    - rgw
 - name: rgw_sfs_gc_max_objects_per_iteration
   type: uint
   level: advanced

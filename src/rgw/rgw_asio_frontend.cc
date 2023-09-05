@@ -37,6 +37,9 @@
 
 #define dout_subsys ceph_subsys_rgw
 
+extern uint64_t ts_main;
+extern void send_probe_start_evt(const char *where, uint64_t ts, const boost::intrusive_ptr<CephContext> &cct);
+
 namespace {
 
 using tcp = boost::asio::ip::tcp;
@@ -1092,35 +1095,22 @@ int AsioFrontend::run()
     });
   }
 
-  NoDoutPrefix ndp(g_ceph_context, 1);
+  uint64_t ts_fup = std::chrono::duration_cast<std::chrono::nanoseconds>(ceph::real_clock::now().time_since_epoch()).count();
 
-  RGWAccessKey key;
-  key.id = "test";
-  key.key = "test";
-
-  RGWEnv env;
-  req_info info(g_ceph_context, &env);
-  info.method = "PUT";
-  info.request_uri = "/start";
-
-  param_vec_t params;
-
-  std::string endpoint = g_conf().get_val<std::string>("probe_endpoint");
-  ldout(cct, 0) << "endpoint:" << endpoint << dendl;
-
-  uint64_t ts = std::chrono::duration_cast<std::chrono::nanoseconds>(ceph::real_clock::now().time_since_epoch()).count();
-
-  std::ostringstream os;
-  os << ts;
-
-  params.push_back(param_pair_t("ts", os.str()));
-  RGWRESTSimpleRequest req(g_ceph_context, "PUT", endpoint, NULL, &params, std::nullopt);
-
-  bufferlist response;
-  int ret = req.forward_request(&ndp, key, info, 1024, NULL, &response, null_yield);
-  if(ret){
-      ldout(cct, 0) << "forward_request failed:" << ret << dendl;
+  /****************************
+   * PUT start - main >>>
+  ****************************/
+  if(g_conf().get_val<bool>("send_probe_evt_main")){
+    ::send_probe_start_evt("main", ::ts_main, cct);
   }
+
+  /****************************
+   * PUT start - frontend-up >>>
+  ****************************/
+  if(g_conf().get_val<bool>("send_probe_evt_frontend_up")){
+    ::send_probe_start_evt("frontend-up", ts_fup, cct);
+  }
+
 
   return 0;
 }
