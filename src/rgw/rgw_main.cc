@@ -39,9 +39,22 @@ public:
   }
 };
 
+void mark_die_evt(const char *how)
+{
+  uint64_t ts = std::chrono::duration_cast<std::chrono::nanoseconds>(ceph::real_clock::now().time_since_epoch()).count();
+  FILE *dth_fd = nullptr;
+  std::ostringstream os;
+  os << g_conf().get_val<std::string>("rgw_data") << '/' << "DeathToken";
+  if((dth_fd = fopen(os.str().c_str(), "w"))) {
+    fprintf(dth_fd, "%lu\n%s", ts, how);
+    fclose(dth_fd);
+  }
+}
+
 uint64_t ts_main = 0;
 
-void send_probe_start_evt(const char *where, uint64_t ts, const boost::intrusive_ptr<CephContext> &cct){
+void send_probe_start_evt(const char *where, uint64_t ts, const boost::intrusive_ptr<CephContext> &cct)
+{
   NoDoutPrefix ndp(g_ceph_context, 1);
 
   RGWAccessKey key;
@@ -56,13 +69,42 @@ void send_probe_start_evt(const char *where, uint64_t ts, const boost::intrusive
   param_vec_t params;
 
   std::string endpoint = g_conf().get_val<std::string>("probe_endpoint");
-  ldout(cct, 0) << "endpoint:" << endpoint << dendl;
+  ldout(cct, 0) << "[start evt] endpoint:" << endpoint << dendl;
 
   std::ostringstream os;
   os << ts;
 
   params.push_back(param_pair_t("ts", os.str()));
   params.push_back(param_pair_t("where", where));
+  RGWRESTSimpleRequest req(g_ceph_context, "PUT", endpoint, NULL, &params, std::nullopt);
+
+  bufferlist response;
+  int ret = req.forward_request(&ndp, key, info, 1024, NULL, &response, null_yield);
+  if(ret){
+      ldout(cct, 0) << "forward_request failed:" << ret << dendl;
+  }
+}
+
+void send_probe_death_evt(const char *how, const char *ts, const boost::intrusive_ptr<CephContext> &cct)
+{
+  NoDoutPrefix ndp(g_ceph_context, 1);
+
+  RGWAccessKey key;
+  key.id = "test";
+  key.key = "test";
+
+  RGWEnv env;
+  req_info info(g_ceph_context, &env);
+  info.method = "PUT";
+  info.request_uri = "/death";
+
+  param_vec_t params;
+  params.push_back(param_pair_t("type", how));
+
+  std::string endpoint = g_conf().get_val<std::string>("probe_endpoint");
+  ldout(cct, 0) << "[death evt] endpoint:" << endpoint << dendl;
+
+  params.push_back(param_pair_t("ts", ts));
   RGWRESTSimpleRequest req(g_ceph_context, "PUT", endpoint, NULL, &params, std::nullopt);
 
   bufferlist response;
@@ -206,48 +248,9 @@ int main(int argc, char *argv[])
 #endif
 
   rgw::signal::wait_shutdown();
+  mark_die_evt("regular");
 
   derr << "shutting down" << dendl;
-
-  /****************************
-   * PUT death >>> regular
-  ****************************/
-  {
-    NoDoutPrefix ndp(g_ceph_context, 1);
-
-    RGWAccessKey key;
-    key.id = "test";
-    key.key = "test";
-
-    RGWEnv env;
-    req_info info(g_ceph_context, &env);
-    info.method = "PUT";
-    info.request_uri = "/death";
-
-    param_vec_t params;
-    params.push_back(param_pair_t("type", "regular"));
-
-    std::string endpoint = g_conf().get_val<std::string>("probe_endpoint");
-    ldout(cct, 0) << "endpoint:" << endpoint << dendl;
-
-    uint64_t ts = std::chrono::duration_cast<std::chrono::nanoseconds>(ceph::real_clock::now().time_since_epoch()).count();
-
-    std::ostringstream os;
-    os << ts;
-
-    params.push_back(param_pair_t("ts", os.str()));
-    RGWRESTSimpleRequest req(g_ceph_context, "PUT", endpoint, NULL, &params, std::nullopt);
-
-    bufferlist response;
-    int ret = req.forward_request(&ndp, key, info, 1024, NULL, &response, null_yield);
-    if(ret){
-        ldout(cct, 0) << "forward_request failed:" << ret << dendl;
-    }
-  }
-
-  /****************************
-   * PUT death regular <<<
-  ****************************/
 
   const auto finalize_async_signals = []() {
     unregister_async_signal_handler(SIGHUP, rgw::signal::sighup_handler);

@@ -356,7 +356,6 @@ public:
   }
 
   void execute(optional_yield y) override;
-  void send_die_evt(const char *how);
 
   const char* name() const override { return "go_die"; }
 };
@@ -382,59 +381,28 @@ DIE_HOW die_how_str2enum(std::string &str){
   }
 }
 
-void RGWOp_Go_Die::send_die_evt(const char *how)
-{
-  RGWAccessKey key;
-  key.id = "test";
-  key.key = "test";
-
-  RGWEnv env;
-  req_info info(g_ceph_context, &env);
-  info.method = "PUT";
-  info.request_uri = "/death";
-
-  param_vec_t params;
-  params.push_back(param_pair_t("type", how));
-
-  std::string endpoint = g_conf().get_val<std::string>("probe_endpoint");
-  ldpp_dout(this, 0) << "endpoint:" << endpoint << dendl;
-
-  uint64_t ts = std::chrono::duration_cast<std::chrono::nanoseconds>(ceph::real_clock::now().time_since_epoch()).count();
-
-  std::ostringstream os;
-  os << ts;
-
-  params.push_back(param_pair_t("ts", os.str()));
-  RGWRESTSimpleRequest req(g_ceph_context, "PUT", endpoint, NULL, &params, std::nullopt);
-
-  bufferlist response;
-  int ret = req.forward_request(this, key, info, 1024, NULL, &response, null_yield);
-  if(ret){
-      ldpp_dout(this, 0) << "forward_request failed:" << ret << dendl;
-  }
-}
+void mark_die_evt(const char *how);
 
 void RGWOp_Go_Die::execute(optional_yield y)
 {
   bool die_how_existed = false;
   std::string die_how_str;
   RESTArgs::get_string(s, "how", die_how_str, &die_how_str, &die_how_existed);
-  ldpp_dout(this, 0) << "Lord requested to die by:" << die_how_str << dendl;
 
   DIE_HOW how = die_how_str2enum(die_how_str);
   switch (how)
   {
     case EXIT_0:
+      mark_die_evt(die_how_str.c_str());
       ldpp_dout(this, 0) << "DIE by exit-0" << dendl;
-      send_die_evt(die_how_str.c_str());
       exit(0);
     case EXIT_1:
+      mark_die_evt(die_how_str.c_str());
       ldpp_dout(this, 0) << "DIE by exit-1" << dendl;
-      send_die_evt(die_how_str.c_str());
       exit(1);
     case CORE_BY_SEG_FAULT:
+      mark_die_evt(die_how_str.c_str());
       ldpp_dout(this, 0) << "DIE by segfault" << dendl;
-      send_die_evt(die_how_str.c_str());
       ((RGWOp_Go_Die*)(0x0fafa))->execute(null_yield);
     case REGULAR:
       ldpp_dout(this, 0) << "DIE by regular" << dendl;

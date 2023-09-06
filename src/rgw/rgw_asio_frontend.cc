@@ -39,6 +39,7 @@
 
 extern uint64_t ts_main;
 extern void send_probe_start_evt(const char *where, uint64_t ts, const boost::intrusive_ptr<CephContext> &cct);
+extern void send_probe_death_evt(const char *where, const char *ts, const boost::intrusive_ptr<CephContext> &cct);
 
 namespace {
 
@@ -1096,6 +1097,36 @@ int AsioFrontend::run()
   }
 
   uint64_t ts_fup = std::chrono::duration_cast<std::chrono::nanoseconds>(ceph::real_clock::now().time_since_epoch()).count();
+
+  /****************************
+   * PUT death - >>>
+  ****************************/
+
+  FILE *dth_fd = nullptr;
+  std::ostringstream os;
+  os << g_conf().get_val<std::string>("rgw_data") << '/' << "DeathToken";
+  if((dth_fd = fopen(os.str().c_str(), "r"))) {
+    char *dts = NULL;
+    char *how = NULL;
+    size_t len = 0;
+
+    getline(&dts, &len, dth_fd);
+    dts[strlen(dts)-1] = '\0';
+    getline(&how, &len, dth_fd);
+
+    ldout(cct, 4) << "dts:" << dts << " how:" << how << dendl;
+    ::send_probe_death_evt(how, dts, cct);
+
+    if (dts){
+      free(dts);
+    }
+    if (how){
+      free(how);
+    }
+
+    fclose(dth_fd);
+    unlink(os.str().c_str());
+  }
 
   /****************************
    * PUT start - main >>>
