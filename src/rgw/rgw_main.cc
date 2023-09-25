@@ -247,10 +247,27 @@ int main(int argc, char *argv[])
   }
 #endif
 
+  int go = 1;
+
+  std::thread death_token_refresher([&]{
+    dout(1) << "started death_token_refresher" << dendl;
+    uint32_t i = 0;
+    while(go){
+      mark_die_evt("unsolicited");
+      sleep(1);
+      if((++i%20) == 0){
+        dout(1) << "mark_die_evt[unsolicited]" << dendl;
+      }
+    }
+  });
+
   rgw::signal::wait_shutdown();
   mark_die_evt("regular");
 
   derr << "shutting down" << dendl;
+
+  go = 0;
+  death_token_refresher.join();
 
   const auto finalize_async_signals = []() {
     unregister_async_signal_handler(SIGHUP, rgw::signal::sighup_handler);
