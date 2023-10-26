@@ -72,6 +72,16 @@ struct DBOPBucketInfo {
 
   DBOPBucketInfo(const DBOPBucketInfo& other) = default;
   DBOPBucketInfo& operator=(const DBOPBucketInfo& other) = default;
+
+  bool operator==(const DBOPBucketInfo& other) const {
+    if (this->deleted != other.deleted) return false;
+    if (this->battrs != other.battrs) return false;
+    ceph::bufferlist this_binfo_bl;
+    this->binfo.encode(this_binfo_bl);
+    ceph::bufferlist other_binfo_bl;
+    other.binfo.encode(other_binfo_bl);
+    return this_binfo_bl == other_binfo_bl;
+  }
 };
 
 using DBDeletedObjectItem =

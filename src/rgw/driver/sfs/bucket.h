@@ -62,6 +62,25 @@ class SFSBucket : public StoreBucket {
   SFSBucket(SFStore* _store, sfs::BucketRef _bucket);
   SFSBucket& operator=(const SFSBucket&) = delete;
 
+  /**
+   * This method updates the in-memory views of this object fetching
+   * from this.bucket.
+   * This method should be called every time this.bucket is updated
+   * from the backing storage.
+   *
+   * Views updated:
+   *
+   *  - get_info()
+   *  - get_attrs()
+   *  - acls
+   */
+  void update_views();
+
+  int try_metadata_update(
+      const std::function<int(sfs::sqlite::DBOPBucketInfo& current_state)>&
+          apply_delta
+  );
+
   virtual std::unique_ptr<Bucket> clone() override {
     return std::unique_ptr<Bucket>(new SFSBucket{*this});
   }

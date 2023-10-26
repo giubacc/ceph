@@ -16,6 +16,49 @@
 #include "rgw/rgw_sal_sfs.h"
 
 /*
+  These structs are in-memory mockable versions of actual structs/classes
+  that have a private rep.
+  Real types normally populate their rep via encode/decode methods.
+  For the sake of convenience, we define binary equivalent types with
+  public editable members.
+*/
+namespace mockable {
+struct DefaultRetention {
+  std::string mode;
+  int days;
+  int years;
+
+  bool operator==(const DefaultRetention& other) const {
+    return this->mode == other.mode && this->days == other.days &&
+           this->years == other.years;
+  }
+};
+
+struct ObjectLockRule {
+  mockable::DefaultRetention defaultRetention;
+
+  bool operator==(const ObjectLockRule& other) const {
+    return this->defaultRetention == other.defaultRetention;
+  }
+};
+
+struct RGWObjectLock {
+  bool enabled;
+  bool rule_exist;
+  mockable::ObjectLockRule rule;
+
+  bool operator==(const RGWObjectLock& other) const {
+    return this->enabled == other.enabled &&
+           this->rule_exist == other.rule_exist && this->rule == other.rule;
+  }
+};
+
+mockable::RGWObjectLock& actual2mock(::RGWObjectLock& actual) {
+  return (mockable::RGWObjectLock&)actual;
+}
+}  // namespace mockable
+
+/*
   HINT
   s3gw.db will create here: /tmp/rgw_sfs_tests
 */
@@ -1438,6 +1481,7 @@ TEST_F(TestSFSBucket, ListNamespaceMultipartsBasics) {
       .path_uuid = uuid,
       .meta_str = "metastr",
       .mtime = now};
+
   int id = multipart.insert(mpop);
   ASSERT_GE(id, 0);
 
@@ -1452,4 +1496,194 @@ TEST_F(TestSFSBucket, ListNamespaceMultipartsBasics) {
   ASSERT_EQ(results.objs.size(), 1);
   EXPECT_EQ(results.objs[0].key.name, std::to_string(id));
   EXPECT_EQ(results.objs[0].meta.mtime, now);
+}
+
+TEST_F(TestSFSBucket, RacedBucketMetadataWriteOperations) {
+  auto ceph_context = std::make_shared<CephContext>(CEPH_ENTITY_TYPE_CLIENT);
+  ceph_context->_conf.set_val("rgw_sfs_data_path", getTestDir());
+  ceph_context->_log->start();
+  auto store = new rgw::sal::SFStore(ceph_context.get(), getTestDir());
+
+  NoDoutPrefix ndp(ceph_context.get(), 1);
+  RGWEnv env;
+  env.init(ceph_context.get());
+  createUser("usr_id", store->db_conn);
+
+  rgw_user arg_user("", "usr_id", "");
+  auto user = store->get_user(arg_user);
+
+  rgw_bucket arg_bucket("t_id", "b_name", "");
+  rgw_placement_rule arg_pl_rule("default", "STANDARD");
+  std::string arg_swift_ver_location;
+  RGWQuotaInfo arg_quota_info;
+  RGWAccessControlPolicy arg_aclp_d = get_aclp_default();
+  rgw::sal::Attrs arg_attrs;
+
+  RGWBucketInfo arg_info = get_binfo();
+  obj_version arg_objv;
+  bool existed = false;
+  req_info arg_req_info(ceph_context.get(), &env);
+
+  std::unique_ptr<rgw::sal::Bucket> bucket_from_create;
+
+  EXPECT_EQ(
+      user->create_bucket(
+          &ndp,                    //dpp
+          arg_bucket,              //b
+          "zg1",                   //zonegroup_id
+          arg_pl_rule,             //placement_rule
+          arg_swift_ver_location,  //swift_ver_location
+          &arg_quota_info,         //pquota_info
+          arg_aclp_d,              //policy
+          arg_attrs,               //attrs
+          arg_info,                //info
+          arg_objv,                //ep_objv
+          false,                   //exclusive
+          false,                   //obj_lock_enabled
+          &existed,                //existed
+          arg_req_info,            //req_info
+          &bucket_from_create,     //bucket
+          null_yield               //optional_yield
+      ),
+      0
+  );
+
+  std::unique_ptr<rgw::sal::Bucket> bucket_from_store_1;
+
+  EXPECT_EQ(
+      store->get_bucket(
+          &ndp, user.get(), arg_info.bucket, &bucket_from_store_1, null_yield
+      ),
+      0
+  );
+
+  std::unique_ptr<rgw::sal::Bucket> bucket_from_store_2;
+
+  EXPECT_EQ(
+      store->get_bucket(
+          &ndp, user.get(), arg_info.bucket, &bucket_from_store_2, null_yield
+      ),
+      0
+  );
+
+  EXPECT_EQ(*bucket_from_store_1, *bucket_from_store_2);
+
+  // merge_and_store_attrs
+
+  rgw::sal::Attrs new_attrs;
+  RGWAccessControlPolicy arg_aclp = get_aclp_1();
+  {
+    bufferlist acl_bl;
+    arg_aclp.encode(acl_bl);
+    new_attrs[RGW_ATTR_ACL] = acl_bl;
+  }
+
+  EXPECT_EQ(
+      bucket_from_store_1->merge_and_store_attrs(&ndp, new_attrs, null_yield), 0
+  );
+
+  // assert bucket_from_store_1 contains the RGW_ATTR_ACL attribute
+  auto acl_bl_1 = bucket_from_store_1->get_attrs().find(RGW_ATTR_ACL);
+  EXPECT_NE(bucket_from_store_1->get_attrs().end(), acl_bl_1);
+
+  // assert bucket_from_store_2 does not contain the RGW_ATTR_ACL attribute
+  auto acl_bl_2 = bucket_from_store_2->get_attrs().find(RGW_ATTR_ACL);
+  EXPECT_EQ(bucket_from_store_2->get_attrs().end(), acl_bl_2);
+
+  // put_info
+
+  RGWObjectLock obj_lock;
+  mockable::RGWObjectLock& ol = mockable::actual2mock(obj_lock);
+  ol.enabled = true;
+  ol.rule.defaultRetention.years = 12;
+  ol.rule.defaultRetention.days = 31;
+  ol.rule.defaultRetention.mode = "GOVERNANCE";
+  ol.rule_exist = true;
+
+  bucket_from_store_2->get_info().obj_lock = obj_lock;
+  EXPECT_EQ(bucket_from_store_2->put_info(&ndp, false, real_time()), 0);
+
+  auto& ol1 = mockable::actual2mock(bucket_from_store_1->get_info().obj_lock);
+  auto& ol2 = mockable::actual2mock(bucket_from_store_2->get_info().obj_lock);
+
+  // obj lock structure in the respective memory cannot be equal at this point for the
+  // two bucket_from_store_1 and bucket_from_store_2 references; this simulates two threads updating
+  // the metadata over the same bucket using their own bucket reference (as it happens actually when 2
+  // concurrent calls are issued from one or more S3 clients).
+  EXPECT_NE(ol1, ol2);
+
+  // Getting now a third reference from the backing store should fetch an image equal to
+  // bucket_from_store_2 since that reference is the latest one that did a put_info().
+  // merge_and_store_attrs() done with bucket_from_store_1 should now be lost due to
+  // bucket_from_store_2.put_info().
+  std::unique_ptr<rgw::sal::Bucket> bucket_from_store_3;
+  EXPECT_EQ(
+      store->get_bucket(
+          &ndp, user.get(), arg_info.bucket, &bucket_from_store_3, null_yield
+      ),
+      0
+  );
+
+  // ol2 and ol3 should be the same.
+  auto& ol3 = mockable::actual2mock(bucket_from_store_3->get_info().obj_lock);
+  EXPECT_EQ(ol2, ol3);
+
+  // We expect to have lost RGW_ATTR_ACL attribute in the backing store.
+  auto acl_bl_3 = bucket_from_store_3->get_attrs().find(RGW_ATTR_ACL);
+  EXPECT_EQ(bucket_from_store_3->get_attrs().end(), acl_bl_3);
+
+  // Now we repeat the updates interposing the try_refresh_info() on bucket_from_store_2.
+  // try_refresh_info() refreshes bucket_from_store_2's memory with the state obtained
+  // from the store.
+  EXPECT_EQ(
+      bucket_from_store_1->merge_and_store_attrs(&ndp, new_attrs, null_yield), 0
+  );
+  EXPECT_EQ(bucket_from_store_2->try_refresh_info(&ndp, nullptr), 0);
+  EXPECT_EQ(bucket_from_store_2->put_info(&ndp, false, real_time()), 0);
+
+  // let's refetch bucket_from_store_3 from store.
+  EXPECT_EQ(
+      store->get_bucket(
+          &ndp, user.get(), arg_info.bucket, &bucket_from_store_3, null_yield
+      ),
+      0
+  );
+
+  // Now all the views over bucket_from_store_2, bucket_from_store_2 and
+  // bucket_from_store_3 should be the same, given that the
+  // underlying sfs::BucketRef are (hopefully) the same.
+
+  // get_info() view
+  ol1 = mockable::actual2mock(bucket_from_store_1->get_info().obj_lock);
+  ol2 = mockable::actual2mock(bucket_from_store_2->get_info().obj_lock);
+  ol3 = mockable::actual2mock(bucket_from_store_3->get_info().obj_lock);
+  EXPECT_EQ(ol1, ol2);
+  EXPECT_EQ(ol2, ol3);
+
+  // get_attrs() view and acls views
+  acl_bl_1 = bucket_from_store_1->get_attrs().find(RGW_ATTR_ACL);
+  EXPECT_NE(bucket_from_store_1->get_attrs().end(), acl_bl_1);
+  acl_bl_2 = bucket_from_store_2->get_attrs().find(RGW_ATTR_ACL);
+  EXPECT_NE(bucket_from_store_2->get_attrs().end(), acl_bl_2);
+  acl_bl_3 = bucket_from_store_3->get_attrs().find(RGW_ATTR_ACL);
+  EXPECT_NE(bucket_from_store_3->get_attrs().end(), acl_bl_3);
+
+  {
+    RGWAccessControlPolicy aclp;
+    auto ci_lval = acl_bl_1->second.cbegin();
+    aclp.decode(ci_lval);
+    EXPECT_EQ(aclp, arg_aclp);
+  }
+  {
+    RGWAccessControlPolicy aclp;
+    auto ci_lval = acl_bl_2->second.cbegin();
+    aclp.decode(ci_lval);
+    EXPECT_EQ(aclp, arg_aclp);
+  }
+  {
+    RGWAccessControlPolicy aclp;
+    auto ci_lval = acl_bl_3->second.cbegin();
+    aclp.decode(ci_lval);
+    EXPECT_EQ(aclp, arg_aclp);
+  }
 }

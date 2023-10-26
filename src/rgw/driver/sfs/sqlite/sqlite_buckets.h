@@ -33,32 +33,62 @@ class SQLiteBuckets {
     uint64_t obj_count;
   };
 
-  std::optional<DBOPBucketInfo> get_bucket(const std::string& bucket_id) const;
-  std::vector<DBOPBucketInfo> get_bucket_by_name(const std::string& bucket_name
+  std::optional<DBOPBucketInfo> get_bucket(
+      const std::string& bucket_id,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
+
+  std::vector<DBOPBucketInfo> get_bucket_by_name(
+      const std::string& bucket_name,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
   ) const;
   /// get_onwer returns bucket ownership information as a pair of
   /// (user id, display name) or nullopt
   std::optional<std::pair<std::string, std::string>> get_owner(
-      const std::string& bucket_id
+      const std::string& bucket_id, rgw::sal::sfs::sqlite::StorageRef storage = nullptr
   ) const;
 
-  void store_bucket(const DBOPBucketInfo& bucket) const;
-  void remove_bucket(const std::string& bucket_id) const;
+  void store_bucket(
+      const DBOPBucketInfo& bucket,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
 
-  std::vector<std::string> get_bucket_ids() const;
-  std::vector<std::string> get_bucket_ids(const std::string& user_id) const;
+  void remove_bucket(
+      const std::string& bucket_id,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
 
-  std::vector<DBOPBucketInfo> get_buckets() const;
-  std::vector<DBOPBucketInfo> get_buckets(const std::string& user_id) const;
+  std::vector<std::string> get_bucket_ids(
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
+  std::vector<std::string> get_bucket_ids(
+      const std::string& user_id,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
 
-  std::vector<std::string> get_deleted_buckets_ids() const;
+  std::vector<DBOPBucketInfo> get_buckets(
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
+  std::vector<DBOPBucketInfo> get_buckets(
+      const std::string& user_id,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
 
-  bool bucket_empty(const std::string& bucket_id) const;
+  std::vector<std::string> get_deleted_buckets_ids(
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
+
+  bool bucket_empty(
+      const std::string& bucket_id,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
+  ) const;
   std::optional<DBDeletedObjectItems> delete_bucket_transact(
-      const std::string& bucket_id, uint max_objects, bool& bucket_deleted
+      const std::string& bucket_id, uint max_objects, bool& bucket_deleted,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
   ) const;
   const std::optional<SQLiteBuckets::Stats> get_stats(
-      const std::string& bucket_id
+      const std::string& bucket_id,
+      rgw::sal::sfs::sqlite::StorageRef storage = nullptr
   ) const;
 };
 

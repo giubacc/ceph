@@ -264,6 +264,7 @@ class DBConn {
   std::vector<sqlite3*> sqlite_conns;
   const std::thread::id main_thread;
   mutable std::shared_mutex storage_pool_mutex;
+  mutable std::mutex transactional_block_mutex;
 
  public:
   CephContext* const cct;
@@ -287,6 +288,12 @@ class DBConn {
 
   dbapi::sqlite::database get() {
     return dbapi::sqlite::database(get_storage()->filename());
+  }
+
+  int transact(const std::function<int(StorageRef)>& block) {
+    auto storage = get_storage();
+    std::unique_lock<std::mutex> lock(transactional_block_mutex);
+    return block(storage);
   }
 
   static std::string getDBPath(CephContext* cct) {

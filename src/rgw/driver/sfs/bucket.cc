@@ -47,6 +47,11 @@ namespace rgw::sal {
 
 SFSBucket::SFSBucket(SFStore* _store, sfs::BucketRef _bucket)
     : StoreBucket(_bucket->get_info()), store(_store), bucket(_bucket) {
+  update_views();
+}
+
+void SFSBucket::update_views() {
+  get_info() = bucket->get_info();
   set_attrs(bucket->get_attrs());
 
   auto it = attrs.find(RGW_ATTR_ACL);
@@ -54,6 +59,47 @@ SFSBucket::SFSBucket(SFStore* _store, sfs::BucketRef _bucket)
     auto lval = it->second.cbegin();
     acls.decode(lval);
   }
+}
+
+int SFSBucket::try_metadata_update(
+    const std::function<int(sfs::sqlite::DBOPBucketInfo& current_state)>&
+        apply_delta
+) {
+  auto current_state = sfs::sqlite::DBOPBucketInfo(get_info(), get_attrs());
+  auto db_conn = get_store().db_conn;
+  int res =
+      db_conn->transact([&](rgw::sal::sfs::sqlite::StorageRef storage) -> int {
+        auto db_state = sfs::get_meta_buckets(db_conn)->get_bucket(
+            bucket->get_bucket_id(), storage
+        );
+        if (!db_state) {
+          // this is an error, the operation should not be retried
+          return -ERR_NO_SUCH_BUCKET;
+        }
+        if (current_state != *db_state) {
+          // the operation will be retried
+          return -ECANCELED;
+        }
+        // current_state == db_state, we apply the delta and we store the bucket.
+        int res = apply_delta(current_state);
+        if (res) {
+          return res;
+        }
+        sfs::get_meta_buckets(db_conn)->store_bucket(current_state, storage);
+        return 0;
+      });
+
+  if (!res) {
+    store->_refresh_buckets_safe();
+    auto bref = store->get_bucket_ref(get_name());
+    if (!bref) {
+      // if we go here, the state of this bucket is inconsistent
+      return -ERR_NO_SUCH_ENTITY;
+    }
+    bucket = bref;
+    update_views();
+  }
+  return res;
 }
 
 void SFSBucket::write_meta(const DoutPrefixProvider* /*dpp*/) {
@@ -404,28 +450,12 @@ int SFSBucket::
 int SFSBucket::merge_and_store_attrs(
     const DoutPrefixProvider* /*dpp*/, Attrs& new_attrs, optional_yield /*y*/
 ) {
-  for (auto& it : new_attrs) {
-    attrs[it.first] = it.second;
-
-    if (it.first == RGW_ATTR_ACL) {
-      auto lval = it.second.cbegin();
-      acls.decode(lval);
-    }
-  }
-  for (auto& it : attrs) {
-    auto it_find = new_attrs.find(it.first);
-    if (it_find == new_attrs.end()) {
-      // this is an old attr that is not defined in the new_attrs
-      // delete it
-      attrs.erase(it.first);
-    }
-  }
-
-  sfs::get_meta_buckets(get_store().db_conn)
-      ->store_bucket(sfs::sqlite::DBOPBucketInfo(get_info(), get_attrs()));
-
-  store->_refresh_buckets_safe();
-  return 0;
+  return try_metadata_update(
+      [&](sfs::sqlite::DBOPBucketInfo& current_state) -> int {
+        current_state.battrs = new_attrs;
+        return 0;
+      }
+  );
 }
 
 // try_resolve_mp_from_oid tries to parse an integer id from oid to
@@ -529,11 +559,22 @@ int SFSBucket::abort_multiparts(
   return sfs::SFSMultipartUploadV2::abort_multiparts(dpp, store, this);
 }
 
+/**
+ * @brief Refresh this bucket object with the state obtained from the store.
+          Indeed it can happen that the state of this bucket is obsolete due to
+          concurrent threads updating metadata using their own SFSBucket instance.
+ */
 int SFSBucket::try_refresh_info(
     const DoutPrefixProvider* dpp, ceph::real_time* /*pmtime*/
 ) {
-  lsfs_warn(dpp) << __func__ << ": TODO" << dendl;
-  return -ENOTSUP;
+  auto bref = store->get_bucket_ref(get_name());
+  if (!bref) {
+    lsfs_dout(dpp, 0) << fmt::format("no such bucket! {}", get_name()) << dendl;
+    return -ERR_NO_SUCH_BUCKET;
+  }
+  bucket = bref;
+  update_views();
+  return 0;
 }
 
 int SFSBucket::read_usage(
