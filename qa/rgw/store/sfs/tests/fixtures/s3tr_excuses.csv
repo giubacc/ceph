@@ -18,7 +18,6 @@ test_bucket_recreate_overwrite_acl;https://github.com/aquarist-labs/s3gw/issues/
 test_logging_toggle;https://tracker.ceph.com/issues/984;Not supported by RGW
 test_object_copy_replacing_metadata;https://github.com/aquarist-labs/s3gw/issues/525;BUG
 test_object_copy_to_itself_with_metadata;https://github.com/aquarist-labs/s3gw/issues/525;BUG
-test_object_lock_delete_object_with_retention_and_marker;https://github.com/aquarist-labs/s3gw/issues/690;BUG
 test_object_read_unreadable;https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html;Broken test, Object names are UTF-8
 test_object_requestid_matches_header_on_error;https://github.com/aquarist-labs/s3gw/issues/689;BUG
 test_object_set_get_unicode_metadata;https://github.com/aquarist-labs/s3gw/issues/688;BUG, maybe upstream

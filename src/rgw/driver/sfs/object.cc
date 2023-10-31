@@ -463,7 +463,7 @@ int SFSObject::get_obj_state(
 ) {
   refresh_meta();
   *_state = &state;
-  return 0;
+  return objref->deleted ? -ENOENT : 0;
 }
 
 int SFSObject::set_obj_attrs(
